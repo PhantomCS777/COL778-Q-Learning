@@ -9,6 +9,15 @@ This the optional class tempelate for the Tabular Q agent.
 You are free to use your own class template or 
 modify this class tempelate 
 '''
+
+
+
+# NOTE
+# init state
+# what does get_policy return
+# why update q while sampling
+
+
 class TabularQAgent:
 
     def __init__(self, 
@@ -35,8 +44,10 @@ class TabularQAgent:
         self.visualization_runs = visualize_runs
         self.visualization_every = visualize_every
         self.log_folder = log_folder
-   
-        pass
+
+        self.eps = eps
+        self.eps_type = eps_type
+        self.qtable = dict() 
 
     def choose_action(self, state, greedy = False):
 
@@ -44,8 +55,12 @@ class TabularQAgent:
         Right now returning random action but need to add
         your own logic
         '''
-        #TO DO: You can add you code here
-        return np.random.randint(0, 5)
+        if(greedy):
+            if(state not in self.qtable):
+                self.qtable[state] = np.zeros(5)
+            return np.argmax(self.qtable[state])
+        else:
+            return np.random.randint(0, 5)
     
     def validate_policy(self) -> Tuple[float, float]:
         '''
@@ -134,8 +149,41 @@ class TabularQAgent:
         '''
         Learns the policy
         '''
-        #TO DO: You can add you code here
-        return 
+        iterations = 0
+        # How do i choose init
+        state = -1
+        stop = False
+        while(not stop):
+            greedy = True
+            if(self.eps_type == 'constant'):
+                if(np.random.rand() < self.eps):
+                    greedy = False
+            
+            # Non constant eps
+            
+            action = self.choose_action(state, greedy)
+            new_state, reward, stop, _ = self.env.step(action)
+            
+            if(state not in self.qtable):
+                self.qtable[state] = np.zeros(5)
+            if(new_state not in self.qtable):
+                self.qtable[new_state] = np.zeros(5)
+            
+            if(stop):
+                target = reward
+                # How do i choose init
+                state = -1
+                iterations += 1
+                self.env.reset()
+                stop = False
+                if(iterations == self.iterations):
+                    stop = True
+            else:
+                target = reward + self.df * np.max(self.qtable[new_state])
+            self.qtable[state][action] += self.alpha * (target - self.qtable[state][action])
+            state = new_state
+
+
 
 if __name__ == '__main__':
 

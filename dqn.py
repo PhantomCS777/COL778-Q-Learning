@@ -3,7 +3,7 @@ from env import HighwayEnv, ACTION_NO_OP, get_highway_env
 import numpy as np 
 from typing import Tuple
 import argparse
-
+import torch
 '''
 import _ Agent
 agent = Agent()
@@ -11,6 +11,26 @@ env = Env()
 agent.train_policy(iterations = 1000)
  
 '''
+
+# NOTE
+# what is tau
+# should i use relu
+
+
+class DQNetwork(torch.nn.Module):
+    def __init__(self):
+        super(DQNetwork, self).__init__()
+        self.fc1 = torch.nn.Linear(6, 32)
+        self.fc2 = torch.nn.Linear(32, 32)
+        self.fc3 = torch.nn.Linear(32, 5)
+
+    def forward(self, x):
+        x = torch.nn.functional.relu(self.fc1(x))
+        x = torch.nn.functional.relu(self.fc2(x))
+        x = self.fc3(x)
+        return x
+
+
 class DQNAgent:
 
     def __init__(self, 
@@ -30,7 +50,6 @@ class DQNAgent:
                     batch_size = 256
                     ):
 
-        #TO DO: You can add you code here
         self.env = env 
        
         self.eps = eps
@@ -42,7 +61,14 @@ class DQNAgent:
         self.visualization_runs = visualize_runs
         self.visualization_every = visualize_every
 
-   
+        self.eps_type = eps_type
+        self.batch_size = batch_size
+        self.lr = lr
+        self.dqnet = DQNetwork()
+        # what is tau
+        self.tau = tau
+
+
 
 
     def choose_action(self, state, greedy = False):
@@ -142,6 +168,7 @@ class DQNAgent:
         Learns the policy
         '''
         #TO DO: You can add you code here
+
         
 
 if __name__ == '__main__':
