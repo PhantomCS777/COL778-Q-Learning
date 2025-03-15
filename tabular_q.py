@@ -51,7 +51,11 @@ class TabularQAgent:
         self.qtable = dict() 
         self.avg_rewards_training = []
         self.avg_dist_training = []
-
+    def get_action(self,state):
+        if state in self.qtable:
+            return np.argmax(self.qtable[state])
+        else:
+            return ACTION_NO_OP
     def choose_action(self, state, greedy = False):
 
         '''
@@ -61,6 +65,7 @@ class TabularQAgent:
         if(greedy):
             if(state not in self.qtable):
                 self.qtable[state] = np.zeros(5)
+                return np.random.randint(0, 5)
             return np.argmax(self.qtable[state])
         else:
             return np.random.randint(0, 5)
@@ -90,7 +95,7 @@ class TabularQAgent:
                 if state == -1:
                     action = ACTION_NO_OP
                 else:
-                    action = self.choose_action(state, True)
+                    action = self.get_action(state)
                 new_state, reward, stop, _ = self.env.step(action)
                 new_state = tuple(new_state) 
                 state = new_state 
@@ -125,7 +130,7 @@ class TabularQAgent:
                 if state == -1:
                     action = ACTION_NO_OP
                 else:
-                    action = self.choose_action(state, True)
+                    action = self.get_action(state)
                 new_state, reward, stop, _ = self.env.step(action)
                 new_state = tuple(new_state) 
                 state = new_state 
@@ -228,8 +233,9 @@ class TabularQAgent:
                 # How do i choose init
                 state = -1
                 if iterations%self.validate_every == 0:
+                    print(f'Iteration: {iterations}')
                     cur_avg_reward,cur_avg_dist = self.validate_policy() 
-                    self.avg_rewards_training.append(cur_avg_dist)
+                    self.avg_rewards_training.append(cur_avg_reward)
                     self.avg_dist_training.append(cur_avg_dist)
                 iterations += 1
                 
@@ -239,7 +245,8 @@ class TabularQAgent:
                     stop = True
             else:
                 target = reward + self.df * np.max(self.qtable[new_state])
-            self.qtable[state][action] += self.alpha * (target - self.qtable[state][action])
+            # self.qtable[state][action] += self.alpha * (target - self.qtable[state][action])
+            self.qtable[state][action] = (1-self.alpha)*self.qtable[state][action] + self.alpha*target
             state = new_state
 
     def plot_avg_rewards_dist(self):
@@ -277,7 +284,7 @@ if __name__ == '__main__':
         env = get_highway_env(dist_obs_states = 3, reward_type = 'dist')
     '''
     env = HighwayEnv()
-    qagent = TabularQAgent(env, 
+    qagent = TabularQAgent(env, iterations = args.iterations,
                            log_folder = args.output_folder)
     qagent.get_policy()
     qagent.plot_avg_rewards_dist()
