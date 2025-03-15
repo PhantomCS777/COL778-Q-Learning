@@ -1,4 +1,5 @@
-
+import re
+from networkx import random_powerlaw_tree_sequence
 from env import HighwayEnv, ACTION_NO_OP, get_highway_env
 import numpy as np 
 from typing import Tuple
@@ -48,6 +49,8 @@ class TabularQAgent:
         self.eps = eps
         self.eps_type = eps_type
         self.qtable = dict() 
+        self.avg_rewards_training = []
+        self.avg_dist_training = []
 
     def choose_action(self, state, greedy = False):
 
@@ -79,6 +82,28 @@ class TabularQAgent:
             obs = self.env.reset(i) #don't modify this
             
             #TO DO: You can add you code here
+            state = -1 
+            discount = 1 
+            cur_reward = 0 
+            cur_dist = 0 
+            while(True):
+                if state == -1:
+                    action = ACTION_NO_OP
+                else:
+                    action = self.choose_action(state, True)
+                new_state, reward, stop, _ = self.env.step(action)
+                new_state = tuple(new_state) 
+                state = new_state 
+
+                cur_reward += reward*discount 
+                discount = discount*self.df
+                cur_dist += state[0] 
+                if(stop):
+                    break 
+            rewards.append(cur_reward)
+            dist.append(cur_dist)  
+                
+
         
         return sum(rewards) / len(rewards), sum(dist) / len(dist)
 
@@ -94,8 +119,32 @@ class TabularQAgent:
             obs = self.env.reset(j)  #don't modify this
             done = False
             images = [self.env.render()]
-
+            state = -1 
             #TO DO: You can add you code here
+            while(True):
+                if state == -1:
+                    action = ACTION_NO_OP
+                else:
+                    action = self.choose_action(state, True)
+                new_state, reward, stop, _ = self.env.step(action)
+                new_state = tuple(new_state) 
+                state = new_state 
+
+                images.append(self.env.render()) 
+                if(stop):
+                    break 
+            from PIL import Image
+            images = [Image.fromarray(i) for i in images]
+            images[0].save(
+                f"{self.log_folder}/output_{j}.gif",
+                save_all=True,
+                append_images=images[1:],
+                duration=200,  # Time per frame in milliseconds
+                loop=0,  # Loop forever
+                optimize=True  # Optimize GIF for smaller file size
+            )
+            
+
 
     def visualize_lane_value(self, i:int) -> None:
         '''
@@ -160,20 +209,30 @@ class TabularQAgent:
                     greedy = False
             
             # Non constant eps
-            
-            action = self.choose_action(state, greedy)
+            if state == -1:
+                action = ACTION_NO_OP
+            else:
+                action = self.choose_action(state, greedy)
             new_state, reward, stop, _ = self.env.step(action)
-            
+            new_state = tuple(new_state) 
             if(state not in self.qtable):
                 self.qtable[state] = np.zeros(5)
             if(new_state not in self.qtable):
                 self.qtable[new_state] = np.zeros(5)
             
+            
+                
+
             if(stop):
                 target = reward
                 # How do i choose init
                 state = -1
+                if iterations%self.validate_every == 0:
+                    cur_avg_reward,cur_avg_dist = self.validate_policy() 
+                    self.avg_rewards_training.append(cur_avg_dist)
+                    self.avg_dist_training.append(cur_avg_dist)
                 iterations += 1
+                
                 self.env.reset()
                 stop = False
                 if(iterations == self.iterations):
@@ -183,7 +242,24 @@ class TabularQAgent:
             self.qtable[state][action] += self.alpha * (target - self.qtable[state][action])
             state = new_state
 
+    def plot_avg_rewards_dist(self):
+        """
+        Plot the discounted return from start state and the maximum distance traveled from the start state by control
+        """
+        import matplotlib.pyplot as plt
+        plt.plot(self.avg_rewards_training)
+        plt.xlabel('Iterations')
+        plt.ylabel('Average discounted return')
+        plt.title('Average discounted return vs Iterations')
+        plt.savefig(f'{self.log_folder}/avg_rewards.png')
+        plt.close()
 
+        plt.plot(self.avg_dist_training)
+        plt.xlabel('Iterations')
+        plt.ylabel('Average distance')
+        plt.title('Average distance vs Iterations')
+        plt.savefig(f'{self.log_folder}/avg_dist.png')
+        plt.close()
 
 if __name__ == '__main__':
 
@@ -204,3 +280,5 @@ if __name__ == '__main__':
     qagent = TabularQAgent(env, 
                            log_folder = args.output_folder)
     qagent.get_policy()
+    qagent.plot_avg_rewards_dist()
+    qagent.visualize_policy(0) 
