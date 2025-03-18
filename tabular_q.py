@@ -51,11 +51,13 @@ class TabularQAgent:
         self.qtable = dict() 
         self.avg_rewards_training = []
         self.avg_dist_training = []
+
     def get_action(self,state):
         if state in self.qtable:
             return np.argmax(self.qtable[state])
         else:
             return ACTION_NO_OP
+
     def choose_action(self, state, greedy = False):
 
         '''
@@ -84,29 +86,21 @@ class TabularQAgent:
         
         for i in range(self.validation_runs):
             
-            obs = self.env.reset(i) #don't modify this
-            
-            #TO DO: You can add you code here
-            state = -1 
+            state = self.env.reset(i)
             discount = 1 
             cur_reward = 0 
-            cur_dist = 0 
             while(True):
-                if state == -1:
-                    action = ACTION_NO_OP
-                else:
-                    action = self.get_action(state)
+                action = self.get_action(state)
                 new_state, reward, stop, _ = self.env.step(action)
                 new_state = tuple(new_state) 
                 state = new_state 
 
                 cur_reward += reward*discount 
                 discount = discount*self.df
-                cur_dist += state[0] 
                 if(stop):
+                    dist.append(self.env.control_car.pos)
                     break 
             rewards.append(cur_reward)
-            dist.append(cur_dist)  
                 
 
         
@@ -121,16 +115,12 @@ class TabularQAgent:
         '''
    
         for j in range(self.visualization_runs):
-            obs = self.env.reset(j)  #don't modify this
+            state = self.env.reset(j)
             done = False
             images = [self.env.render()]
-            state = -1 
             #TO DO: You can add you code here
             while(True):
-                if state == -1:
-                    action = ACTION_NO_OP
-                else:
-                    action = self.get_action(state)
+                action = self.get_action(state)
                 new_state, reward, stop, _ = self.env.step(action)
                 new_state = tuple(new_state) 
                 state = new_state 
@@ -205,7 +195,7 @@ class TabularQAgent:
         '''
         iterations = 0
         # How do i choose init
-        state = -1
+        state = env.reset()
         stop = False
         while(not stop):
             greedy = True
@@ -214,10 +204,8 @@ class TabularQAgent:
                     greedy = False
             
             # Non constant eps
-            if state == -1:
-                action = ACTION_NO_OP
-            else:
-                action = self.choose_action(state, greedy)
+            action = self.choose_action(state, greedy)
+
             new_state, reward, stop, _ = self.env.step(action)
             new_state = tuple(new_state) 
             if(state not in self.qtable):
@@ -231,15 +219,13 @@ class TabularQAgent:
             if(stop):
                 target = reward
                 # How do i choose init
-                state = -1
                 if iterations%self.validate_every == 0:
                     print(f'Iteration: {iterations}')
                     cur_avg_reward,cur_avg_dist = self.validate_policy() 
                     self.avg_rewards_training.append(cur_avg_reward)
                     self.avg_dist_training.append(cur_avg_dist)
                 iterations += 1
-                
-                self.env.reset()
+                state = self.env.reset()
                 stop = False
                 if(iterations == self.iterations):
                     stop = True
