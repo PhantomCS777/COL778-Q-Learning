@@ -4,6 +4,10 @@ import numpy as np
 from typing import Tuple
 import argparse
 import torch
+import copy
+from collections import deque
+import random
+
 '''
 import _ Agent
 agent = Agent()
@@ -61,15 +65,16 @@ class DQNAgent:
         self.visualization_runs = visualize_runs
         self.visualization_every = visualize_every
 
+        self.log_folder = log_folder
         self.eps_type = eps_type
         self.batch_size = batch_size
         self.lr = lr
         self.dqnet = DQNetwork()
-        # what is tau
         self.tau = tau
-
-
-
+        self.target_net = copy.deepcopy(self.dqnet)
+        self.replay_buff = deque(maxlen=100000)
+        self.optim = torch.optim.Adam(self.dqnet.parameters(), lr=self.lr)
+        self.loss_func = torch.nn.MSELoss()
 
     def choose_action(self, state, greedy = False):
 
@@ -77,7 +82,11 @@ class DQNAgent:
         Right now returning random action but need to add
         your own logic
         '''
-        #TO DO: You can add you code here
+        if(greedy):
+            state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            with torch.no_grad():
+                q_values = self.dqnet(state_tensor)
+            return int(torch.argmax(q_values).item())
         return np.random.randint(0, 5)
 
     def validate_policy(self) -> Tuple[float, float]:
@@ -94,9 +103,23 @@ class DQNAgent:
 
         for i in range(self.validation_runs):
             
-            obs = self.env.reset(i) #don't modify this
-            
-            #TO DO: You can add you code here
+            state = self.env.reset(i) #don't modify this
+            discount = 1 
+            cur_reward = 0 
+            while(True):
+                action = self.get_action(state)
+                new_state, reward, stop, _ = self.env.step(action)
+                new_state = tuple(new_state) 
+                state = new_state 
+
+                cur_reward += reward*discount 
+                discount = discount*self.df
+                if(stop):
+                    dist.append(self.env.control_car.pos)
+                    break 
+            rewards.append(cur_reward)
+
+
 
         return sum(rewards) / len(rewards), sum(dist) / len(dist)
 
@@ -163,13 +186,58 @@ class DQNAgent:
                     states = self.env.get_all_speed_states()
 
                     #TO DO: You can add you code here
+        
+
+    def run_episode(self, state):
+        done = False
+        while(not done):
+            greedy = True
+            if(self.eps_type == 'constant'):
+                if(np.random.rand() < self.eps):
+                    greedy = False
+            action = self.choose_action(state, greedy)
+            next_state, reward, done, _ = self.env.step(action)
+            self.memory.append((state, action, reward, next_state, done))
+            if len(self.memory) >= self.batch_size:
+                batch = random.sample(self.memory, self.batch_size)
+                states, actions, rewards, next_states, dones = zip(*batch)
+
+
+                states = torch.FloatTensor(states)
+                actions = torch.LongTensor(actions).unsqueeze(1)
+                rewards = torch.FloatTensor(rewards).unsqueeze(1)
+                next_states = torch.FloatTensor(next_states)
+                dones = torch.FloatTensor(dones).unsqueeze(1)
+
+
+                q_values = self.dqnet(states).gather(1, actions)
+                with torch.no_grad():
+                    next_q_values = self.target_net(next_states).max(1)[0].unsqueeze(1)
+
+
+                target = rewards + self.df * next_q_values * (1 - dones)
+                loss = self.loss_func(q_values, target)
+                self.optim.zero_grad()
+                loss.backward()
+                self.optim.step()
+
+
+                for target_param, param in zip(self.target_net.parameters(), self.dqnet.parameters()):
+                    target_param.data.copy_((1 - self.tau) * target_param.data + self.tau * param.data)
+
+
+
+
     def get_policy(self):
         '''
         Learns the policy
         '''
-        #TO DO: You can add you code here
+        for iteration in range(0, self.iterations):
+            state = self.env.reset(iteration)
+            self.run_episode(state)
 
-        
+
+
 
 if __name__ == '__main__':
 

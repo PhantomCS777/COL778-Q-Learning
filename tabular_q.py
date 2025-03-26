@@ -213,9 +213,6 @@ class TabularQAgent:
             if(new_state not in self.qtable):
                 self.qtable[new_state] = np.zeros(5)
             
-            
-                
-
             if(stop):
                 target = reward
                 # How do i choose init
