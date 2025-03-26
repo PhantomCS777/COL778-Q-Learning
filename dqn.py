@@ -232,7 +232,7 @@ class DQNAgent:
         '''
         Learns the policy
         '''
-        for iteration in range(0, self.iterations):
+        for iteration in range(self.iterations):
             state = self.env.reset(iteration)
             self.run_episode(state)
 

@@ -189,48 +189,46 @@ class TabularQAgent:
 
                     #TO DO: You can add you code here
                     
-    def get_policy(self):
-        '''
-        Learns the policy
-        '''
-        iterations = 0
-        # How do i choose init
-        state = env.reset()
-        stop = False
-        while(not stop):
+    def run_episode(self, state):
+        done = False
+        while(not done):
             greedy = True
             if(self.eps_type == 'constant'):
                 if(np.random.rand() < self.eps):
-                    greedy = False
+                    greedy = False    
             
-            # Non constant eps
             action = self.choose_action(state, greedy)
-
-            new_state, reward, stop, _ = self.env.step(action)
+            next_state, reward, done, _ = self.env.step(action)
             new_state = tuple(new_state) 
+
             if(state not in self.qtable):
                 self.qtable[state] = np.zeros(5)
             if(new_state not in self.qtable):
                 self.qtable[new_state] = np.zeros(5)
             
-            if(stop):
+
+            if(done):
                 target = reward
-                # How do i choose init
-                if iterations%self.validate_every == 0:
-                    print(f'Iteration: {iterations}')
-                    cur_avg_reward,cur_avg_dist = self.validate_policy() 
-                    self.avg_rewards_training.append(cur_avg_reward)
-                    self.avg_dist_training.append(cur_avg_dist)
-                iterations += 1
-                state = self.env.reset()
-                stop = False
-                if(iterations == self.iterations):
-                    stop = True
             else:
                 target = reward + self.df * np.max(self.qtable[new_state])
-            # self.qtable[state][action] += self.alpha * (target - self.qtable[state][action])
-            self.qtable[state][action] = (1-self.alpha)*self.qtable[state][action] + self.alpha*target
+
+            self.qtable[state][action] = (1 - self.alpha) * self.qtable[state][action] + self.alpha * target
             state = new_state
+
+
+    def get_policy(self):
+        '''
+        Learns the policy
+        '''
+        for iteration in range(self.iterations):
+            state = self.env.reset(iteration)
+            self.run_episode(state)
+            if iteration%self.validate_every == 0:
+                print(f'Iteration: {iteration}')
+                cur_avg_reward,cur_avg_dist = self.validate_policy() 
+                self.avg_rewards_training.append(cur_avg_reward)
+                self.avg_dist_training.append(cur_avg_dist)
+
 
     def plot_avg_rewards_dist(self):
         """
