@@ -107,7 +107,7 @@ class DQNAgent:
             discount = 1 
             cur_reward = 0 
             while(True):
-                action = self.get_action(state)
+                action = self.choose_action(state)
                 new_state, reward, stop, _ = self.env.step(action)
                 new_state = tuple(new_state) 
                 state = new_state 
@@ -132,10 +132,29 @@ class DQNAgent:
         '''
    
         for j in range(self.visualization_runs):
-            obs = self.env.reset(j)  #don't modify this
+            state = self.env.reset(j)
             done = False
             images = [self.env.render()]
+            #TO DO: You can add you code here
+            while(True):
+                action = self.choose_action(state)
+                new_state, reward, stop, _ = self.env.step(action)
+                new_state = tuple(new_state) 
+                state = new_state 
 
+                images.append(self.env.render()) 
+                if(stop):
+                    break 
+            from PIL import Image
+            images = [Image.fromarray(i) for i in images]
+            images[0].save(
+                f"{self.log_folder}/output_{j}.gif",
+                save_all=True,
+                append_images=images[1:],
+                duration=200,  # Time per frame in milliseconds
+                loop=0,  # Loop forever
+                optimize=True  # Optimize GIF for smaller file size
+            )
             #TO DO: You can add you code here
 
     def visualize_lane_value(self, i:int) -> None:
@@ -197,9 +216,9 @@ class DQNAgent:
                     greedy = False
             action = self.choose_action(state, greedy)
             next_state, reward, done, _ = self.env.step(action)
-            self.memory.append((state, action, reward, next_state, done))
-            if len(self.memory) >= self.batch_size:
-                batch = random.sample(self.memory, self.batch_size)
+            self.replay_buff.append((state, action, reward, next_state, done))
+            if len(self.replay_buff) >= self.batch_size:
+                batch = random.sample(self.replay_buff, self.batch_size)
                 states, actions, rewards, next_states, dones = zip(*batch)
 
 
@@ -239,6 +258,7 @@ class DQNAgent:
 
 
 
+
 if __name__ == '__main__':
 
     
@@ -254,6 +274,7 @@ if __name__ == '__main__':
     '''
     env = HighwayEnv()
     qagent = DQNAgent(env,
-                      iterations = 200000,
+                      iterations = args.iterations,
                       log_folder = args.output_folder)
     qagent.get_policy()
+    qagent.visualize_policy(0)
