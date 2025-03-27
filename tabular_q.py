@@ -53,6 +53,7 @@ class TabularQAgent:
         self.avg_dist_training = []
 
     def get_action(self,state):
+        state  = tuple(state)
         if state in self.qtable:
             return np.argmax(self.qtable[state])
         else:
@@ -191,6 +192,7 @@ class TabularQAgent:
                     
     def run_episode(self, state):
         done = False
+        state = tuple(state)
         while(not done):
             greedy = True
             if(self.eps_type == 'constant'):
@@ -199,7 +201,7 @@ class TabularQAgent:
             
             action = self.choose_action(state, greedy)
             next_state, reward, done, _ = self.env.step(action)
-            new_state = tuple(new_state) 
+            new_state = tuple(next_state) 
 
             if(state not in self.qtable):
                 self.qtable[state] = np.zeros(5)
