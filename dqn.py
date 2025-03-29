@@ -1,12 +1,14 @@
 
 from env import HighwayEnv, ACTION_NO_OP, get_highway_env
-import numpy as np 
+import numpy as np
 from typing import Tuple
 import argparse
 import torch
 import copy
 from collections import deque
 import random
+from PIL import Image
+
 
 '''
 import _ Agent
@@ -17,7 +19,6 @@ agent.train_policy(iterations = 1000)
 '''
 
 # NOTE
-# what is tau
 # should i use relu
 
 
@@ -145,7 +146,6 @@ class DQNAgent:
                 images.append(self.env.render()) 
                 if(stop):
                     break 
-            from PIL import Image
             images = [Image.fromarray(i) for i in images]
             images[0].save(
                 f"{self.log_folder}/output_{j}.gif",
@@ -169,18 +169,24 @@ class DQNAgent:
             self.env.reset(j) #don't modify this
             done = False
             k = 0
-            
-            while(not done and k):
+            images = []
+            while(not done):
                 k += 1
                 _ , _, done, _ = self.env.step(ignore_control_car = True)
                 
                 if(k % 20 == 0):
-
-                    qvalues = []
                     states = self.env.get_all_lane_states()
                     
                     #TO DO: You can add you code here
 
+
+                    states_tensor = torch.FloatTensor(states)
+                    qvalues = self.dqnet(states_tensor)
+                    qvalues = qvalues[:, 0]
+                    qvalues = qvalues.detach().cpu().numpy()
+
+                    req_image = self.env.render_lane_state_values(qvalues)
+                    Image.fromarray(req_image).save(f"{self.log_folder}/lane_value/{i}_{j}_{k}.png")
 
     def visualize_speed_value(self, i:int) -> None:
         '''
@@ -194,18 +200,25 @@ class DQNAgent:
             self.env.reset(j) #don't modify this
             done = False
             k = 0
-
-            while(not done and k):
+            images = []
+            while(not done):
                 k += 1
                 _ , _, done, _ = self.env.step(ignore_control_car = True)
                 
                 if(k % 20 == 0):
 
-                    qvalues = []
                     states = self.env.get_all_speed_states()
 
                     #TO DO: You can add you code here
-        
+
+                    states_tensor = torch.FloatTensor(states)
+                    qvalues = self.dqnet(states_tensor)
+                    qvalues = qvalues[:, 0]
+                    qvalues = qvalues.detach().cpu().numpy()
+
+                    req_image = self.env.render_speed_state_values(qvalues)
+                    Image.fromarray(req_image).save(f"{self.log_folder}/speed_value/{i}_{j}_{k}.png")
+            
 
     def run_episode(self, state):
         done = False
@@ -254,6 +267,9 @@ class DQNAgent:
         for iteration in range(self.iterations):
             state = self.env.reset(iteration)
             self.run_episode(state)
+            if iteration % 1000 == 0:
+                torch.save(self.dqnet.state_dict(), f"{self.log_folder}/dqnet_{iteration}.pth")
+                torch.save(self.target_net.state_dict(), f"{self.log_folder}/target_net_{iteration}.pth")
 
 
 
@@ -278,3 +294,5 @@ if __name__ == '__main__':
                       log_folder = args.output_folder)
     qagent.get_policy()
     qagent.visualize_policy(0)
+    qagent.visualize_speed_value(args.iterations)
+    qagent.visualize_lane_value(args.iterations)
