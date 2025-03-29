@@ -46,10 +46,10 @@ class DQNAgent:
                     tau=0.005,
                     iterations: int = 100000, 
                     eps_type: str = 'constant',
-                    validation_runs: int = 100,
-                    validate_every: int = 50000,
+                    validation_runs: int = 1000,
+                    validate_every: int = 1000,
                     visualize_runs: int = 10, 
-                    visualize_every: int = 50000,
+                    visualize_every: int = 5000,
                     log_folder:str = './',
                     lr = 0.0001,
                     batch_size = 256
@@ -73,9 +73,13 @@ class DQNAgent:
         self.dqnet = DQNetwork()
         self.tau = tau
         self.target_net = copy.deepcopy(self.dqnet)
-        self.replay_buff = deque(maxlen=100000)
+        self.replay_buff = deque(maxlen=10000)
         self.optim = torch.optim.Adam(self.dqnet.parameters(), lr=self.lr)
         self.loss_func = torch.nn.MSELoss()
+
+        self.avg_rewards_training = []
+        self.avg_dist_training = []
+
 
     def choose_action(self, state, greedy = False):
 
@@ -106,9 +110,9 @@ class DQNAgent:
             
             state = self.env.reset(i) #don't modify this
             discount = 1 
-            cur_reward = 0 
+            cur_reward = 0
             while(True):
-                action = self.choose_action(state)
+                action = self.choose_action(state, True)
                 new_state, reward, stop, _ = self.env.step(action)
                 new_state = tuple(new_state) 
                 state = new_state 
@@ -138,7 +142,7 @@ class DQNAgent:
             images = [self.env.render()]
             #TO DO: You can add you code here
             while(True):
-                action = self.choose_action(state)
+                action = self.choose_action(state, True)
                 new_state, reward, stop, _ = self.env.step(action)
                 new_state = tuple(new_state) 
                 state = new_state 
@@ -230,6 +234,26 @@ class DQNAgent:
             action = self.choose_action(state, greedy)
             next_state, reward, done, _ = self.env.step(action)
             self.replay_buff.append((state, action, reward, next_state, done))
+
+
+
+
+    def get_policy(self):
+        '''
+        Learns the policy
+        '''
+        for iteration in range(self.iterations):
+            state = self.env.reset(iteration)
+            self.run_episode(state)
+            if iteration % 10000 == 0:
+                torch.save(self.dqnet.state_dict(), f"{self.log_folder}/dqnet_{iteration}.pth")
+                torch.save(self.target_net.state_dict(), f"{self.log_folder}/target_net_{iteration}.pth")
+            if iteration%self.validate_every == 0:
+                print(f'Iteration: {iteration}')
+                cur_avg_reward,cur_avg_dist = self.validate_policy() 
+                self.avg_rewards_training.append(cur_avg_reward)
+                self.avg_dist_training.append(cur_avg_dist)
+
             if len(self.replay_buff) >= self.batch_size:
                 batch = random.sample(self.replay_buff, self.batch_size)
                 states, actions, rewards, next_states, dones = zip(*batch)
@@ -248,7 +272,7 @@ class DQNAgent:
 
 
                 target = rewards + self.df * next_q_values * (1 - dones)
-                loss = self.loss_func(q_values, target)
+                loss = self.loss_func(target, q_values)
                 self.optim.zero_grad()
                 loss.backward()
                 self.optim.step()
@@ -258,20 +282,24 @@ class DQNAgent:
                     target_param.data.copy_((1 - self.tau) * target_param.data + self.tau * param.data)
 
 
+    def plot_avg_rewards_dist(self):
+        """
+        Plot the discounted return from start state and the maximum distance traveled from the start state by control
+        """
+        import matplotlib.pyplot as plt
+        plt.plot(self.avg_rewards_training)
+        plt.xlabel('Iterations')
+        plt.ylabel('Average discounted return')
+        plt.title('Average discounted return vs Iterations')
+        plt.savefig(f'{self.log_folder}/avg_rewards.png')
+        plt.close()
 
-
-    def get_policy(self):
-        '''
-        Learns the policy
-        '''
-        for iteration in range(self.iterations):
-            state = self.env.reset(iteration)
-            self.run_episode(state)
-            if iteration % 1000 == 0:
-                torch.save(self.dqnet.state_dict(), f"{self.log_folder}/dqnet_{iteration}.pth")
-                torch.save(self.target_net.state_dict(), f"{self.log_folder}/target_net_{iteration}.pth")
-
-
+        plt.plot(self.avg_dist_training)
+        plt.xlabel('Iterations')
+        plt.ylabel('Average distance')
+        plt.title('Average distance vs Iterations')
+        plt.savefig(f'{self.log_folder}/avg_dist.png')
+        plt.close()
 
 
 
@@ -288,11 +316,12 @@ if __name__ == '__main__':
     For part b:
         env = get_highway_env(dist_obs_states = 5, reward_type = 'dist', obs_type='continious')
     '''
-    env = HighwayEnv()
     qagent = DQNAgent(env,
                       iterations = args.iterations,
                       log_folder = args.output_folder)
+    env = HighwayEnv()
     qagent.get_policy()
     qagent.visualize_policy(0)
-    qagent.visualize_speed_value(args.iterations)
-    qagent.visualize_lane_value(args.iterations)
+    qagent.plot_avg_rewards_dist()
+    # qagent.visualize_speed_value(args.iterations)
+    # qagent.visualize_lane_value(args.iterations)
