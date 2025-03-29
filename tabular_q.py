@@ -49,11 +49,20 @@ class TabularQAgent:
         self.eps = eps
         self.eps_type = eps_type
         self.qtable = dict() 
-        if os.path.exists(f'{self.log_folder}/qtable.npy'):
-            self.qtable = np.load(f'{self.log_folder}/qtable.npy', allow_pickle=True).item() 
+        self.exp_decay = 0.99997
+        self.linear_decay = 0.00001
+        # if os.path.exists(f'{self.log_folder}/qtable.npy'):
+        #     self.qtable = np.load(f'{self.log_folder}/qtable.npy', allow_pickle=True).item() 
         self.avg_rewards_training = []
         self.avg_dist_training = []
+        self.avg_eps_training = []
 
+    def eps_step(self):
+        if(self.eps_type == 'exponential'):
+            self.eps = self.eps * self.exp_decay
+        elif(self.eps_type == 'linear'):
+            self.eps = max(0.0001,self.eps - self.linear_decay)
+        
     def get_action(self,state):
         state  = tuple(state)
         if state in self.qtable:
@@ -146,7 +155,7 @@ class TabularQAgent:
                 optimize=True  # Optimize GIF for smaller file size
             )
             
-
+    
 
     def visualize_lane_value(self, i:int) -> None:
         '''
@@ -204,7 +213,13 @@ class TabularQAgent:
             if(self.eps_type == 'constant'):
                 if(np.random.rand() < self.eps):
                     greedy = False    
-            
+            elif(self.eps_type == 'exponential'):
+                if(np.random.rand() < self.eps):
+                    greedy = False
+            elif(self.eps_type == 'linear'):
+                if(np.random.rand() < self.eps):
+                    greedy = False
+            self.eps_step()
             action = self.choose_action(state, greedy)
             next_state, reward, done, _ = self.env.step(action)
             new_state = tuple(next_state) 
@@ -229,32 +244,54 @@ class TabularQAgent:
         Learns the policy
         '''
         for iteration in range(self.iterations):
-            state = self.env.reset(iteration)
+            state = self.env.reset()
             self.run_episode(state)
             if iteration%self.validate_every == 0:
                 print(f'Iteration: {iteration}')
                 cur_avg_reward,cur_avg_dist = self.validate_policy() 
                 self.avg_rewards_training.append(cur_avg_reward)
                 self.avg_dist_training.append(cur_avg_dist)
+                self.avg_eps_training.append(self.eps)
 
 
-    def plot_avg_rewards_dist(self):
+    def plot_avg_rewards_dist(self,plot_id=None):
         """
         Plot the discounted return from start state and the maximum distance traveled from the start state by control
         """
+        reward_path = f'{self.log_folder}/avg_rewards.png'
+        dist_path = f'{self.log_folder}/avg_dist.png'
+        if plot_id is not None:
+            reward_path = f'{self.log_folder}/avg_rewards_{plot_id}.png'
+            dist_path = f'{self.log_folder}/avg_dist_{plot_id}.png'
         import matplotlib.pyplot as plt
         plt.plot(self.avg_rewards_training)
         plt.xlabel('Iterations')
         plt.ylabel('Average discounted return')
         plt.title('Average discounted return vs Iterations')
-        plt.savefig(f'{self.log_folder}/avg_rewards.png')
+        plt.savefig(reward_path)
         plt.close()
 
         plt.plot(self.avg_dist_training)
         plt.xlabel('Iterations')
         plt.ylabel('Average distance')
         plt.title('Average distance vs Iterations')
-        plt.savefig(f'{self.log_folder}/avg_dist.png')
+        plt.savefig(dist_path)
+        plt.close()
+
+    def plot_eps(self, plot_id=None):
+        # plot running average of window 5 against iterations 
+        import matplotlib.pyplot as plt
+        window = 5
+        running_avg = np.convolve(self.avg_eps_training, np.ones(window)/window, mode='valid')
+        eps_path = f'{self.log_folder}/avg_eps.png'
+        if plot_id is not None:
+            eps_path = f'{self.log_folder}/avg_eps_{plot_id}.png'
+
+        plt.plot(running_avg)
+        plt.xlabel('Iterations')
+        plt.ylabel('Average epsilon')
+        plt.title('Average epsilon vs Iterations')
+        plt.savefig(eps_path)
         plt.close()
 
 if __name__ == '__main__':
@@ -262,6 +299,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Parse command-line arguments.")
     parser.add_argument("--iterations", type=int, required=True, help="Number of iterations (integer).")
     parser.add_argument("--output_folder", type=str, required=True, help="Path to the input file.")
+    parser.add_argument("--part", type=str, required=False, help="Part to run (a, b, c, d, e).")
     args = parser.parse_args()
     
     #For part a, b, c and d:
@@ -272,10 +310,72 @@ if __name__ == '__main__':
     For part e and sub part b:
         env = get_highway_env(dist_obs_states = 3, reward_type = 'dist')
     '''
-    env = HighwayEnv()
-    qagent = TabularQAgent(env, iterations = args.iterations,
-                           log_folder = args.output_folder)
-    qagent.get_policy()
-    qagent.plot_avg_rewards_dist()
-    qagent.visualize_policy(0) 
-    qagent.save_qtable()
+    # env = HighwayEnv()
+    default = True 
+    try:
+        if args.part != 'a':
+            default = False
+    except:
+        default = True
+    
+    if default:   
+        qagent = TabularQAgent(env, iterations = args.iterations,
+                            log_folder = args.output_folder)
+        qagent.get_policy()
+        qagent.plot_avg_rewards_dist()
+        qagent.visualize_policy(0) 
+        qagent.save_qtable()
+
+    discount_factors = [0.8,0.9,0.99,0.999] 
+    learning_rates = [0.1,0.3,0.5,0.05] 
+    exploration_strats = ["constant","exponential","linear"]
+    reward_types = ['dist','overtakes'] 
+    quantization_lvl = [5,3,7] 
+    
+    try:
+        print(args.part)
+        if args.part not in ['a', 'b', 'c', 'd', 'e_a', 'e_b']:
+            raise ValueError("Invalid part. Choose from: a, b, c, d, e_a, e_b.")
+    except:
+        exit() 
+    # Part b 
+    if args.part == 'b':
+        for df in discount_factors:
+            qagent = TabularQAgent(env, iterations = args.iterations, 
+                                discount_factor = df, log_folder = args.output_folder)
+            qagent.get_policy()
+            qagent.plot_avg_rewards_dist("part_b_df_" + str(df))
+    
+    # Part c
+    if args.part == 'c':
+        for lr in learning_rates:
+            qagent = TabularQAgent(env, iterations = args.iterations, 
+                                alpha = lr, log_folder = args.output_folder)
+            qagent.get_policy()
+            qagent.plot_avg_rewards_dist("part_c_lr_" + str(lr))
+    
+    # Part d
+    if args.part == 'd':
+        for eps in exploration_strats:
+            qagent = TabularQAgent(env, iterations = args.iterations, 
+                                eps_type = eps, log_folder = args.output_folder)
+            qagent.get_policy()
+            qagent.plot_avg_rewards_dist("part_d_eps_" + str(eps))
+            qagent.plot_eps("part_d_eps_" + str(eps))
+        
+    # Part e_a 
+    if args.part == 'e_a':
+        for rt in reward_types:
+            env = get_highway_env(dist_obs_states = 5, reward_type = rt)
+            qagent = TabularQAgent(env, iterations = args.iterations, 
+                                    log_folder = args.output_folder) 
+            qagent.get_policy()
+            qagent.plot_avg_rewards_dist("part_e_a_rt_" + str(rt))
+    # Part e_b
+    if args.part == 'e_b':
+        for qt in quantization_lvl:
+            env = get_highway_env(dist_obs_states = qt, reward_type = 'dist')
+            qagent = TabularQAgent(env, iterations = args.iterations, 
+                                    log_folder = args.output_folder) 
+            qagent.get_policy()
+            qagent.plot_avg_rewards_dist("part_e_b_qt_" + str(qt))
