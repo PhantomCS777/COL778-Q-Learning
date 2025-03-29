@@ -186,7 +186,7 @@ class DQNAgent:
 
                     states_tensor = torch.FloatTensor(states)
                     qvalues = self.dqnet(states_tensor)
-                    qvalues = qvalues[:, 0]
+                    qvalues = qvalues[:, ACTION_NO_OP]
                     qvalues = qvalues.detach().cpu().numpy()
 
                     req_image = self.env.render_lane_state_values(qvalues)
@@ -217,7 +217,7 @@ class DQNAgent:
 
                     states_tensor = torch.FloatTensor(states)
                     qvalues = self.dqnet(states_tensor)
-                    qvalues = qvalues[:, 0]
+                    qvalues = qvalues[:, ACTION_NO_OP]
                     qvalues = qvalues.detach().cpu().numpy()
 
                     req_image = self.env.render_speed_state_values(qvalues)
@@ -234,6 +234,7 @@ class DQNAgent:
             action = self.choose_action(state, greedy)
             next_state, reward, done, _ = self.env.step(action)
             self.replay_buff.append((state, action, reward, next_state, done))
+            state = next_state
 
 
 
@@ -253,6 +254,8 @@ class DQNAgent:
                 cur_avg_reward,cur_avg_dist = self.validate_policy() 
                 self.avg_rewards_training.append(cur_avg_reward)
                 self.avg_dist_training.append(cur_avg_dist)
+                qagent.visualize_policy(0)
+                qagent.plot_avg_rewards_dist()
 
             if len(self.replay_buff) >= self.batch_size:
                 batch = random.sample(self.replay_buff, self.batch_size)
