@@ -3,7 +3,7 @@ from networkx import random_powerlaw_tree_sequence
 from env import HighwayEnv, ACTION_NO_OP, get_highway_env
 import numpy as np 
 from typing import Tuple
-import argparse
+import argparse, os 
 
 '''
 This the optional class tempelate for the Tabular Q agent. 
@@ -49,6 +49,8 @@ class TabularQAgent:
         self.eps = eps
         self.eps_type = eps_type
         self.qtable = dict() 
+        if os.path.exists(f'{self.log_folder}/qtable.npy'):
+            self.qtable = np.load(f'{self.log_folder}/qtable.npy', allow_pickle=True).item() 
         self.avg_rewards_training = []
         self.avg_dist_training = []
 
@@ -72,7 +74,11 @@ class TabularQAgent:
             return np.argmax(self.qtable[state])
         else:
             return np.random.randint(0, 5)
-    
+    def save_qtable(self):
+        '''
+        Save the qtable to a file
+        '''
+        np.save(f'{self.log_folder}/qtable.npy', self.qtable)
     def validate_policy(self) -> Tuple[float, float]:
         '''
         Returns:
@@ -272,3 +278,4 @@ if __name__ == '__main__':
     qagent.get_policy()
     qagent.plot_avg_rewards_dist()
     qagent.visualize_policy(0) 
+    qagent.save_qtable()
