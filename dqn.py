@@ -254,9 +254,7 @@ class DQNAgent:
                 cur_avg_reward,cur_avg_dist = self.validate_policy() 
                 self.avg_rewards_training.append(cur_avg_reward)
                 self.avg_dist_training.append(cur_avg_dist)
-                qagent.visualize_policy(0)
-                qagent.plot_avg_rewards_dist()
-
+                
             if len(self.replay_buff) >= self.batch_size:
                 batch = random.sample(self.replay_buff, self.batch_size)
                 states, actions, rewards, next_states, dones = zip(*batch)
