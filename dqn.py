@@ -42,7 +42,7 @@ class DQNAgent:
                     env: HighwayEnv, 
                     alpha: float = 0.1, 
                     eps: float = 0.75, 
-                    discount_factor: float = 0.99,
+                    discount_factor: float = 0.9,
                     tau=0.005,
                     iterations: int = 100000, 
                     eps_type: str = 'constant',
@@ -73,7 +73,8 @@ class DQNAgent:
         self.dqnet = DQNetwork()
         self.tau = tau
         self.target_net = copy.deepcopy(self.dqnet)
-        self.replay_buff = deque(maxlen=10000)
+        self.replay_buff = deque(maxlen=100000)
+        # self.optim = torch.optim.SGD(self.dqnet.parameters(), lr=self.lr)
         self.optim = torch.optim.Adam(self.dqnet.parameters(), lr=self.lr)
         self.loss_func = torch.nn.MSELoss()
 
@@ -185,7 +186,8 @@ class DQNAgent:
 
 
                     states_tensor = torch.FloatTensor(states)
-                    qvalues = self.dqnet(states_tensor)
+                    with torch.no_grad():
+                        qvalues = self.dqnet(states_tensor)
                     qvalues = qvalues[:, ACTION_NO_OP]
                     qvalues = qvalues.detach().cpu().numpy()
 
@@ -216,7 +218,8 @@ class DQNAgent:
                     #TO DO: You can add you code here
 
                     states_tensor = torch.FloatTensor(states)
-                    qvalues = self.dqnet(states_tensor)
+                    with torch.no_grad():
+                        qvalues = self.dqnet(states_tensor)
                     qvalues = qvalues[:, ACTION_NO_OP]
                     qvalues = qvalues.detach().cpu().numpy()
 
@@ -231,6 +234,11 @@ class DQNAgent:
             if(self.eps_type == 'constant'):
                 if(np.random.rand() < self.eps):
                     greedy = False
+            else:
+                self.eps = max(0.1, self.eps*0.99)
+                if(np.random.rand() < self.eps):
+                    greedy = False
+
             action = self.choose_action(state, greedy)
             next_state, reward, done, _ = self.env.step(action)
             self.replay_buff.append((state, action, reward, next_state, done))
@@ -243,8 +251,8 @@ class DQNAgent:
         '''
         Learns the policy
         '''
-        for iteration in range(self.iterations):
-            state = self.env.reset(iteration)
+        for iteration in range(1, self.iterations + 1):
+            state = self.env.reset()
             self.run_episode(state)
             if iteration % 10000 == 0:
                 torch.save(self.dqnet.state_dict(), f"{self.log_folder}/dqnet_{iteration}.pth")
@@ -302,6 +310,9 @@ class DQNAgent:
         plt.savefig(f'{self.log_folder}/avg_dist.png')
         plt.close()
 
+    def load_model(self, target_path, dqnet_path):
+        self.target_net.load_state_dict(torch.load(target_path))
+        self.dqnet.load_state_dict(torch.load(dqnet_path))
 
 
 if __name__ == '__main__':
@@ -311,12 +322,12 @@ if __name__ == '__main__':
     parser.add_argument("--iterations", type=int, required=True, help="Number of iterations (integer).")
     parser.add_argument("--output_folder", type=str, required=True, help="Path to the input file.")
     args = parser.parse_args()
-    #for part a
+    # for part a
     env = get_highway_env(dist_obs_states = 5, reward_type = 'dist')
-    '''
-    For part b:
-        env = get_highway_env(dist_obs_states = 5, reward_type = 'dist', obs_type='continious')
-    '''
+    # For part b:
+    
+    # env = get_highway_env(dist_obs_states = 5, reward_type = 'dist', obs_type='continious')
+    
     qagent = DQNAgent(env,
                       iterations = args.iterations,
                       log_folder = args.output_folder)
@@ -324,5 +335,6 @@ if __name__ == '__main__':
     qagent.get_policy()
     qagent.visualize_policy(0)
     qagent.plot_avg_rewards_dist()
+    # qagent.load_model("./dqn_gif/target_net_200000.pth", "./dqn_gif/dqnet_200000.pth")
     # qagent.visualize_speed_value(args.iterations)
     # qagent.visualize_lane_value(args.iterations)
