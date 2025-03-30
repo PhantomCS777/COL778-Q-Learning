@@ -18,7 +18,7 @@ if __name__ == "__main__":
     # subprocess.run(part_a, shell=True)
     # subprocess.run(part_b, shell=True)
     # subprocess.run(part_c, shell=True)
-    subprocess.run(part_d, shell=True)
+    # subprocess.run(part_d, shell=True)
     # subprocess.run(part_e_a, shell=True)
     # subprocess.run(part_e_b, shell=True)
 

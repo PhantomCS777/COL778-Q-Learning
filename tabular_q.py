@@ -4,7 +4,8 @@ from env import HighwayEnv, ACTION_NO_OP, get_highway_env
 import numpy as np 
 from typing import Tuple
 import argparse, os 
-
+from PIL import Image
+import matplotlib.pyplot as plt
 '''
 This the optional class tempelate for the Tabular Q agent. 
 You are free to use your own class template or 
@@ -28,7 +29,7 @@ class TabularQAgent:
                     discount_factor: float = 0.99,
                     iterations: int = 100000, 
                     eps_type: str = 'constant',
-                    validation_runs: int = 100,
+                    validation_runs: int = 1000,
                     validate_every: int = 1000,
                     visualize_runs: int = 10, 
                     visualize_every: int = 5000,
@@ -144,7 +145,7 @@ class TabularQAgent:
                 images.append(self.env.render()) 
                 if(stop):
                     break 
-            from PIL import Image
+            
             images = [Image.fromarray(i) for i in images]
             images[0].save(
                 f"{self.log_folder}/output_{j}.gif",
@@ -181,6 +182,13 @@ class TabularQAgent:
                     
                     #TO DO: You can add you code here
 
+                    for state in states:
+                        qvalues.append(self.qtable[state][ACTION_NO_OP])
+                    
+                    req_image = self.env.render_lane_state_values(qvalues)
+                    Image.fromarray(req_image).save(f"{self.log_folder}/lane_value/{i}{j}{k}.png")
+
+
     def visualize_speed_value(self, i:int) -> None:
         '''
         Args:
@@ -204,6 +212,11 @@ class TabularQAgent:
                     states = self.env.get_all_speed_states()
 
                     #TO DO: You can add you code here
+                    for state in states:
+                        qvalues.append(self.qtable[state][ACTION_NO_OP])
+                    
+                    req_image = self.env.render_speed_state_values(qvalues)
+                    Image.fromarray(req_image).save(f"{self.log_folder}/lane_value/{i}{j}{k}.png")
                     
     def run_episode(self, state):
         done = False
@@ -263,7 +276,7 @@ class TabularQAgent:
         if plot_id is not None:
             reward_path = f'{self.log_folder}/avg_rewards_{plot_id}.png'
             dist_path = f'{self.log_folder}/avg_dist_{plot_id}.png'
-        import matplotlib.pyplot as plt
+        
         plt.plot(self.avg_rewards_training)
         plt.xlabel('Iterations')
         plt.ylabel('Average discounted return')
@@ -280,7 +293,7 @@ class TabularQAgent:
 
     def plot_eps(self, plot_id=None):
         # plot running average of window 5 against iterations 
-        import matplotlib.pyplot as plt
+ 
         window = 5
         running_avg = np.convolve(self.avg_eps_training, np.ones(window)/window, mode='valid')
         eps_path = f'{self.log_folder}/avg_eps.png'
@@ -325,6 +338,8 @@ if __name__ == '__main__':
         qagent.plot_avg_rewards_dist()
         qagent.visualize_policy(0) 
         qagent.save_qtable()
+        qagent.visualize_lane_value(0)
+        qagent.visualize_speed_value(0)
 
     discount_factors = [0.8,0.9,0.99,0.999] 
     learning_rates = [0.1,0.3,0.5,0.05] 
