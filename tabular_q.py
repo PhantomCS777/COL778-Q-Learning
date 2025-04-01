@@ -50,8 +50,8 @@ class TabularQAgent:
         self.eps = eps
         self.eps_type = eps_type
         self.qtable = dict() 
-        self.exp_decay = 0.99997
-        self.linear_decay = 0.00001
+        self.exp_decay = 0.99
+        self.linear_decay = 0.007
         # if os.path.exists(f'{self.log_folder}/qtable.npy'):
         #     self.qtable = np.load(f'{self.log_folder}/qtable.npy', allow_pickle=True).item() 
         self.avg_rewards_training = []
@@ -165,13 +165,13 @@ class TabularQAgent:
         
         Create image visulizations for no_op actions for particular lane
         '''
-        
+
         for j in range(self.visualization_runs // 2):
             self.env.reset(j) #don't modify this
             done = False
             k = 0
             
-            while(not done and k):
+            while(not done):
                 k += 1
                 _ , _, done, _ = self.env.step(ignore_control_car = True)
                 
@@ -183,6 +183,9 @@ class TabularQAgent:
                     #TO DO: You can add you code here
 
                     for state in states:
+                        state = tuple(state)
+                        if(state not in self.qtable):
+                            self.qtable[state] = np.zeros(5)
                         qvalues.append(self.qtable[state][ACTION_NO_OP])
                     
                     req_image = self.env.render_lane_state_values(qvalues)
@@ -202,7 +205,7 @@ class TabularQAgent:
             done = False
             k = 0
 
-            while(not done and k):
+            while(not done):
                 k += 1
                 _ , _, done, _ = self.env.step(ignore_control_car = True)
                 
@@ -213,10 +216,13 @@ class TabularQAgent:
 
                     #TO DO: You can add you code here
                     for state in states:
+                        state = tuple(state)
+                        if(state not in self.qtable):
+                            self.qtable[state] = np.zeros(5)
                         qvalues.append(self.qtable[state][ACTION_NO_OP])
                     
                     req_image = self.env.render_speed_state_values(qvalues)
-                    Image.fromarray(req_image).save(f"{self.log_folder}/lane_value/{i}{j}{k}.png")
+                    Image.fromarray(req_image).save(f"{self.log_folder}/speed_value/{i}{j}{k}.png")
                     
     def run_episode(self, state):
         done = False
@@ -232,7 +238,7 @@ class TabularQAgent:
             elif(self.eps_type == 'linear'):
                 if(np.random.rand() < self.eps):
                     greedy = False
-            self.eps_step()
+            
             action = self.choose_action(state, greedy)
             next_state, reward, done, _ = self.env.step(action)
             new_state = tuple(next_state) 
@@ -259,12 +265,15 @@ class TabularQAgent:
         for iteration in range(self.iterations):
             state = self.env.reset()
             self.run_episode(state)
+            
             if iteration%self.validate_every == 0:
                 print(f'Iteration: {iteration}')
                 cur_avg_reward,cur_avg_dist = self.validate_policy() 
                 self.avg_rewards_training.append(cur_avg_reward)
                 self.avg_dist_training.append(cur_avg_dist)
                 self.avg_eps_training.append(self.eps)
+            if iteration%1000 == 0:
+                self.eps_step()
 
 
     def plot_avg_rewards_dist(self,plot_id=None):
@@ -293,19 +302,51 @@ class TabularQAgent:
 
     def plot_eps(self, plot_id=None):
         # plot running average of window 5 against iterations 
- 
+
         window = 5
-        running_avg = np.convolve(self.avg_eps_training, np.ones(window)/window, mode='valid')
+        running_avg = np.convolve(self.avg_rewards_training, np.ones(window)/window, mode='valid')
+        reward_path = f'{self.log_folder}/mov_avg_reward.png'
         eps_path = f'{self.log_folder}/avg_eps.png'
         if plot_id is not None:
             eps_path = f'{self.log_folder}/avg_eps_{plot_id}.png'
+            reward_path = f'{self.log_folder}/mov_avg_reward_{plot_id}.png'
 
-        plt.plot(running_avg)
+        plt.plot(self.avg_eps_training, label='Epsilon')
         plt.xlabel('Iterations')
         plt.ylabel('Average epsilon')
         plt.title('Average epsilon vs Iterations')
         plt.savefig(eps_path)
         plt.close()
+
+        plt.plot(running_avg, label='Running average')
+        plt.xlabel('Iterations')
+        plt.ylabel('Average discounted return')
+        plt.title('Running average of discounted return vs Iterations')
+        plt.savefig(reward_path)
+        plt.close()
+    def print_max_dist_reward(self,runs=100): 
+        rewards = []
+        dist = []
+        
+        for i in range(runs):
+            state = self.env.reset(i)
+            discount = 1 
+            cur_reward = 0 
+            while(True):
+                action = self.get_action(state)
+                new_state, reward, stop, _ = self.env.step(action)
+                new_state = tuple(new_state) 
+                state = new_state 
+
+                cur_reward += reward*discount 
+                discount = discount*self.df
+                if(stop):
+                    dist.append(self.env.control_car.pos)
+                    break 
+            rewards.append(cur_reward)
+        print(f'Maximum distance: {max(dist)}')
+        print(f'Average Reward of Start State: {sum(rewards) / len(rewards)}')
+
 
 if __name__ == '__main__':
 
@@ -326,7 +367,7 @@ if __name__ == '__main__':
     # env = HighwayEnv()
     default = True 
     try:
-        if args.part != 'a':
+        if args.part != 'a' and args.part != None:
             default = False
     except:
         default = True
@@ -340,6 +381,7 @@ if __name__ == '__main__':
         qagent.save_qtable()
         qagent.visualize_lane_value(0)
         qagent.visualize_speed_value(0)
+        qagent.print_max_dist_reward()
 
     discount_factors = [0.8,0.9,0.99,0.999] 
     learning_rates = [0.1,0.3,0.5,0.05] 
@@ -348,10 +390,11 @@ if __name__ == '__main__':
     quantization_lvl = [5,3,7] 
     
     try:
-        print(args.part)
+        # print(args.part)
         if args.part not in ['a', 'b', 'c', 'd', 'e_a', 'e_b']:
             raise ValueError("Invalid part. Choose from: a, b, c, d, e_a, e_b.")
     except:
+        # print("No part specified. Exiting.")
         exit() 
     # Part b 
     if args.part == 'b':

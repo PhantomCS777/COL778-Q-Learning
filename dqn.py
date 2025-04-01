@@ -1,4 +1,5 @@
 
+from matplotlib.collections import QuadMesh
 from env import HighwayEnv, ACTION_NO_OP, get_highway_env
 import numpy as np
 from typing import Tuple
@@ -17,24 +18,101 @@ env = Env()
 agent.train_policy(iterations = 1000)
  
 '''
+class SAM(torch.optim.Optimizer):
+    def __init__(self, params, base_optimizer, rho=0.05, adaptive=False, **kwargs):
+        assert rho >= 0.0, f"Invalid rho, should be non-negative: {rho}"
 
+        defaults = dict(rho=rho, adaptive=adaptive, **kwargs)
+        super(SAM, self).__init__(params, defaults)
+
+        self.base_optimizer = base_optimizer(self.param_groups, **kwargs)
+        self.param_groups = self.base_optimizer.param_groups
+        self.defaults.update(self.base_optimizer.defaults)
+
+    @torch.no_grad()
+    def first_step(self, zero_grad=False):
+        grad_norm = self._grad_norm()
+        for group in self.param_groups:
+            scale = group["rho"] / (grad_norm + 1e-12)
+
+            for p in group["params"]:
+                if p.grad is None: continue
+                self.state[p]["old_p"] = p.data.clone()
+                e_w = (torch.pow(p, 2) if group["adaptive"] else 1.0) * p.grad * scale.to(p)
+                p.add_(e_w)  # climb to the local maximum "w + e(w)"
+
+        if zero_grad: self.zero_grad()
+
+    @torch.no_grad()
+    def second_step(self, zero_grad=False):
+        for group in self.param_groups:
+            for p in group["params"]:
+                if p.grad is None: continue
+                p.data = self.state[p]["old_p"]  # get back to "w" from "w + e(w)"
+
+        self.base_optimizer.step()  # do the actual "sharpness-aware" update
+
+        if zero_grad: self.zero_grad()
+
+    @torch.no_grad()
+    def step(self, closure=None):
+        assert closure is not None, "Sharpness Aware Minimization requires closure, but it was not provided"
+        closure = torch.enable_grad()(closure)  # the closure should do a full forward-backward pass
+
+        self.first_step(zero_grad=True)
+        closure()
+        self.second_step()
+
+    def _grad_norm(self):
+        shared_device = self.param_groups[0]["params"][0].device  # put everything on the same device, in case of model parallelism
+        norm = torch.norm(
+                    torch.stack([
+                        ((torch.abs(p) if group["adaptive"] else 1.0) * p.grad).norm(p=2).to(shared_device)
+                        for group in self.param_groups for p in group["params"]
+                        if p.grad is not None
+                    ]),
+                    p=2
+               )
+        return norm
+
+    def load_state_dict(self, state_dict):
+        super().load_state_dict(state_dict)
+        self.base_optimizer.param_groups = self.param_groups
 # NOTE
 # should i use relu
 
 
+# class DQNetwork(torch.nn.Module):
+#     def __init__(self):
+#         super(DQNetwork, self).__init__()
+#         self.fc1 = torch.nn.Linear(6, 32)
+#         self.fc2 = torch.nn.Linear(32, 32)
+#         self.fc3 = torch.nn.Linear(32, 5)
+
+#     def forward(self, x):
+#         x = torch.nn.functional.relu(self.fc1(x))
+#         x = torch.nn.functional.relu(self.fc2(x))
+#         x = self.fc3(x)
+#         return x
+
 class DQNetwork(torch.nn.Module):
     def __init__(self):
         super(DQNetwork, self).__init__()
-        self.fc1 = torch.nn.Linear(6, 32)
-        self.fc2 = torch.nn.Linear(32, 32)
-        self.fc3 = torch.nn.Linear(32, 5)
+        self.fc1 = torch.nn.Linear(6, 1000)
+        self.bn1 = torch.nn.BatchNorm1d(1000)
+        self.fc2 = torch.nn.Linear(1000, 400)
+        self.bn2 = torch.nn.BatchNorm1d(400)
+        self.fc3 = torch.nn.Linear(400, 5)
 
     def forward(self, x):
-        x = torch.nn.functional.relu(self.fc1(x))
-        x = torch.nn.functional.relu(self.fc2(x))
+        x = self.fc1(x)
+        x = self.bn1(x)
+        x = torch.nn.functional.relu(x)
+        x = self.fc2(x)
+        x = self.bn2(x)
+        x = torch.nn.functional.relu(x)
         x = self.fc3(x)
         return x
-
 
 class DQNAgent:
 
@@ -51,7 +129,7 @@ class DQNAgent:
                     visualize_runs: int = 10, 
                     visualize_every: int = 5000,
                     log_folder:str = './',
-                    lr = 0.0001,
+                    lr = 0.001,
                     batch_size = 256
                     ):
 
@@ -74,23 +152,36 @@ class DQNAgent:
         self.tau = tau
         self.target_net = copy.deepcopy(self.dqnet)
         self.replay_buff = deque(maxlen=10000)
-        self.optim = torch.optim.Adam(self.dqnet.parameters(), lr=self.lr)
+        # self.optim = torch.optim.SGD(self.dqnet.parameters(), lr=self.lr,momentum=0.95,weight_decay=1e-4, nesterov=True)
+        self.base_optim = torch.optim.Adam
+        self.optim = SAM(self.dqnet.parameters(), self.base_optim, lr=self.lr, rho=2.0, adaptive=True)
         self.loss_func = torch.nn.MSELoss()
-
+        self.scheduler = torch.optim.lr_scheduler.StepLR(self.optim.base_optimizer, step_size=20000, gamma=0.8)
         self.avg_rewards_training = []
         self.avg_dist_training = []
 
+   
 
-    def choose_action(self, state, greedy = False):
+    # def choose_action(self, state, greedy = False):
 
-        '''
-        Right now returning random action but need to add
-        your own logic
-        '''
-        if(greedy):
+    #     '''
+    #     Right now returning random action but need to add
+    #     your own logic
+    #     '''
+    #     if(greedy):
+    #         state_tensor = torch.FloatTensor(state).unsqueeze(0)
+    #         with torch.no_grad():
+    #             q_values = self.dqnet(state_tensor)
+    #         return int(torch.argmax(q_values).item())
+    #     return np.random.randint(0, 5)
+    def choose_action(self, state, greedy=False):
+        if greedy:
             state_tensor = torch.FloatTensor(state).unsqueeze(0)
+            # Switch to eval mode to use running statistics instead of batch statistics
+            self.dqnet.eval()
             with torch.no_grad():
                 q_values = self.dqnet(state_tensor)
+            self.dqnet.train()  # Switch back to train mode if needed
             return int(torch.argmax(q_values).item())
         return np.random.randint(0, 5)
 
@@ -234,6 +325,7 @@ class DQNAgent:
             action = self.choose_action(state, greedy)
             next_state, reward, done, _ = self.env.step(action)
             self.replay_buff.append((state, action, reward, next_state, done))
+            state = next_state 
 
 
 
@@ -243,16 +335,17 @@ class DQNAgent:
         Learns the policy
         '''
         for iteration in range(self.iterations):
-            state = self.env.reset(iteration)
+            state = self.env.reset()
             self.run_episode(state)
             if iteration % 10000 == 0:
+                # qagent.plot_avg_rewards_dist()
                 torch.save(self.dqnet.state_dict(), f"{self.log_folder}/dqnet_{iteration}.pth")
                 torch.save(self.target_net.state_dict(), f"{self.log_folder}/target_net_{iteration}.pth")
             if iteration%self.validate_every == 0:
                 print(f'Iteration: {iteration}')
-                cur_avg_reward,cur_avg_dist = self.validate_policy() 
-                self.avg_rewards_training.append(cur_avg_reward)
-                self.avg_dist_training.append(cur_avg_dist)
+                # cur_avg_reward,cur_avg_dist = self.validate_policy() 
+                # self.avg_rewards_training.append(cur_avg_reward)
+                # self.avg_dist_training.append(cur_avg_dist)
 
             if len(self.replay_buff) >= self.batch_size:
                 batch = random.sample(self.replay_buff, self.batch_size)
@@ -266,17 +359,31 @@ class DQNAgent:
                 dones = torch.FloatTensor(dones).unsqueeze(1)
 
 
+                # q_values = self.dqnet(states).gather(1, actions)
+                # with torch.no_grad():
+                #     next_q_values = self.target_net(next_states).max(1)[0].unsqueeze(1)
+
+
+                # target = rewards + self.df * next_q_values * (1 - dones)
+                # loss = self.loss_func(target, q_values)
+                # self.optim.zero_grad()
+                # loss.backward()
+                # self.optim.step()
+                # self.scheduler.step()
+                self.optim.zero_grad()
                 q_values = self.dqnet(states).gather(1, actions)
                 with torch.no_grad():
                     next_q_values = self.target_net(next_states).max(1)[0].unsqueeze(1)
-
-
                 target = rewards + self.df * next_q_values * (1 - dones)
+                def closure():
+                    q_values = self.dqnet(states).gather(1, actions)
+                    loss = self.loss_func(target, q_values)
+                    loss.backward()
+                    return loss
                 loss = self.loss_func(target, q_values)
-                self.optim.zero_grad()
                 loss.backward()
-                self.optim.step()
-
+                self.optim.step(closure)
+                self.scheduler.step()
 
                 for target_param, param in zip(self.target_net.parameters(), self.dqnet.parameters()):
                     target_param.data.copy_((1 - self.tau) * target_param.data + self.tau * param.data)
@@ -321,7 +428,12 @@ if __name__ == '__main__':
                       log_folder = args.output_folder)
     env = HighwayEnv()
     qagent.get_policy()
-    qagent.visualize_policy(0)
+    # qagent.visualize_policy(0)
+    qagent.validate_policy()
+    for _ in range(2):
+        cur_avg_reward,cur_avg_dist = qagent.validate_policy() 
+        qagent.avg_rewards_training.append(cur_avg_reward)
+        qagent.avg_dist_training.append(cur_avg_dist)
     qagent.plot_avg_rewards_dist()
     # qagent.visualize_speed_value(args.iterations)
     # qagent.visualize_lane_value(args.iterations)
