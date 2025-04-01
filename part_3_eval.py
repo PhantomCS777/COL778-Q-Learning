@@ -1,6 +1,7 @@
 from part_3 import BestAgent 
 import argparse
 from tqdm import tqdm
+import time
 
 def evaluate_episode(agent, seed):
 
@@ -19,6 +20,7 @@ if __name__ == '__main__':
     parser.add_argument("--output_file", type=str, required=True, help="Path to the output file.")
     args = parser.parse_args()
 
+    start_time = time.time()
     agent = BestAgent(iterations = args.iterations)
     agent.get_policy()
 
@@ -34,3 +36,6 @@ if __name__ == '__main__':
     file = open(args.output_file, "w")
     for d in distances:
         file.write(str(d) + '\n')
+    end_time = time.time()
+    print(f"Execution Time: {end_time - start_time} seconds")
+    agent.print_max_dist_reward()

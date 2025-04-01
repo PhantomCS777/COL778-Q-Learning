@@ -6,7 +6,7 @@ with open(file_path, 'r') as file:
 
 # Remove any trailing newline characters
 lines = [float(line.strip()) for line in lines]
-print(max(lines))
+print(min(lines))
 print(sum(lines)/ len(lines))
 
 
